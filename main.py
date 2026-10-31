@@ -31,16 +31,28 @@ def normalize_unicode(input_file: Path, output_file: Path, normalization_form: s
     if not input_file.exists():
         raise FileNotFoundError(f"Input file not found: {input_file}")
 
+    if Path(input_file).resolve() == Path(output_file).resolve():
+        logging.error(f"Refusing in-place output: output path '{output_file}' resolves to the input file '{input_file}'.")
+        raise ValueError("Output path resolves to the input file; refusing to overwrite the input.")
+
     try:
         with open(input_file, 'r', encoding='utf-8') as infile:
             content = infile.read()
 
         normalized_content = unicodedata.normalize(normalization_form, content)
 
+        changed = sum(1 for a, b in zip(content, normalized_content) if a != b) + abs(len(content) - len(normalized_content))
+        logging.info(f"Characters changed: {changed}")
+
+        if normalized_content == content:
+            logging.info(f"Nothing was changed: '{input_file}' is already in {normalization_form} form (0 characters changed).")
+            return None
+
         with open(output_file, 'w', encoding='utf-8') as outfile:
             outfile.write(normalized_content)
 
         logging.info(f"Successfully normalized '{input_file}' to '{output_file}' using {normalization_form}")
+        return changed
 
     except FileNotFoundError as e:
         logging.error(f"File not found: {e}")
@@ -63,10 +75,10 @@ def setup_argparse() -> argparse.ArgumentParser:
         argparse.ArgumentParser: The configured argument parser.
     """
     parser = argparse.ArgumentParser(
-        description="Normalizes Unicode characters in a file to a consistent form."
+        description="Normalizes Unicode characters in a file to a consistent form. Input must be UTF-8 encoded text."
     )
-    parser.add_argument("input_file", type=Path, help="Path to the input file.")
-    parser.add_argument("output_file", type=Path, help="Path to the output file.")
+    parser.add_argument("input_file", type=Path, help="Path to the input file. The input file must be UTF-8 encoded text.")
+    parser.add_argument("output_file", type=Path, help="Path to the output file. It must not be the input file itself.")
     parser.add_argument(
         "--form",
         type=str,
@@ -100,7 +112,9 @@ def main() -> None:
              logging.error(f"Error: Input file '{args.input_file}' is not a valid file.")
              sys.exit(1)
 
-        normalize_unicode(args.input_file, args.output_file, args.form)
+        result = normalize_unicode(args.input_file, args.output_file, args.form)
+        if result is None:
+            sys.exit(1)
 
     except ValueError as e:
         logging.error(f"ValueError: {e}")

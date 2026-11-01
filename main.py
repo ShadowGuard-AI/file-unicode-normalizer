@@ -36,14 +36,28 @@ def normalize_unicode(input_file: Path, output_file: Path, normalization_form: s
         raise ValueError("Output path resolves to the input file; refusing to overwrite the input.")
 
     try:
+        # Strict UTF-8 in and out. A file in any other encoding fails at this
+        # read with UnicodeDecodeError rather than being detected or converted,
+        # and a byte order mark, if present, is treated as a character and
+        # survives normalization at the front of the output.
         with open(input_file, 'r', encoding='utf-8') as infile:
             content = infile.read()
 
         normalized_content = unicodedata.normalize(normalization_form, content)
 
+        # The changed count is an estimate with a known flaw. It compares the
+        # two strings position by position up to the shorter length, then adds
+        # the length difference. One character early on that composes or
+        # decomposes shifts every later position, so a one character change
+        # can be counted as hundreds. The equality check below is the exact
+        # test; this number is only a size hint in the log.
         changed = sum(1 for a, b in zip(content, normalized_content) if a != b) + abs(len(content) - len(normalized_content))
         logging.info(f"Characters changed: {changed}")
 
+        # Already in the requested form means no output file is written and
+        # the function returns None, which main turns into exit 1. A caller
+        # scripting around this tool asked for a normalized copy, and an
+        # absent output with a failure code says plainly that none was made.
         if normalized_content == content:
             logging.info(f"Nothing was changed: '{input_file}' is already in {normalization_form} form (0 characters changed).")
             return None
